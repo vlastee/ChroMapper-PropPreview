@@ -48,16 +48,19 @@ namespace ChroMapper_PropPreview
             var list = new List<Point>();
             foreach (var row in rows.Children)
             {
-                if (!row.IsArray || row.Count < width) continue;
+                if (!row.IsArray) continue;
+                // Values may be numbers or Heck base providers ("baseHeadPosition.xy").
+                var i = 0;
+                var values = BaseProviders.Values(row.AsArray, ref i, width);
                 var value = Vector4.zero;
-                for (var i = 0; i < width; i++) value[i] = row[i].AsFloat;
-                var time = row.Count > width && row[width].IsNumber ? row[width].AsFloat : 0f;
+                for (var k = 0; k < width; k++) value[k] = values[k];
+                var time = i < row.Count && row[i].IsNumber ? row[i].AsFloat : 0f;
                 Func<float, float> easing = Easings.Linear;
                 var hsv = false;
-                for (var i = width + 1; i < row.Count; i++)
+                for (var k = i + 1; k < row.Count; k++)
                 {
-                    if (!row[i].IsString) continue;
-                    var s = row[i].Value;
+                    if (!row[k].IsString) continue;
+                    var s = row[k].Value;
                     if (s == "lerpHSV") hsv = true;
                     else if (s.StartsWith("ease")) easing = Easings.Get(s);
                 }

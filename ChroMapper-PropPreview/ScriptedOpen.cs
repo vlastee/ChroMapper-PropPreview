@@ -171,11 +171,26 @@ namespace ChroMapper_PropPreview
                 cam.farClipPlane = far;
             }
             Log($"pose shot {name} at beat {beat} ({secs} s), camera {string.Join(",", pose)}");
+            foreach (var light in FindObjectsByType<Light>(FindObjectsSortMode.None))
+                if (light.isActiveAndEnabled)
+                    Log($"  light {light.name} ({light.type}) intensity {light.intensity} color {light.color} mask {light.cullingMask} at {light.transform.position}"
+                        + $" rot {light.transform.eulerAngles} scene {light.gameObject.scene.name}");
+            Log($"  ambient {RenderSettings.ambientMode} {RenderSettings.ambientLight} x{RenderSettings.ambientIntensity} sun {(RenderSettings.sun != null ? RenderSettings.sun.name : "-")}");
+            Log($"  light probes {(LightmapSettings.lightProbes == null ? "none" : LightmapSettings.lightProbes.count.ToString())}, lightmaps {LightmapSettings.lightmaps.Length}");
+            var sh = RenderSettings.ambientProbe;
+            Log($"  ambient probe L0 {sh[0, 0]:F3},{sh[1, 0]:F3},{sh[2, 0]:F3} reflection {RenderSettings.defaultReflectionMode} x{RenderSettings.reflectionIntensity}"
+                + $" custom {(RenderSettings.customReflectionTexture != null ? RenderSettings.customReflectionTexture.name : "-")}");
+            foreach (var probe in FindObjectsByType<ReflectionProbe>(FindObjectsSortMode.None))
+                if (probe.isActiveAndEnabled)
+                    Log($"  reflection probe {probe.name} mode {probe.mode} texture {(probe.texture != null ? probe.texture.name : "-")} intensity {probe.intensity} at {probe.transform.position} size {probe.size} scene {probe.gameObject.scene.name}");
             foreach (var root in FindObjectsByType<Transform>(FindObjectsSortMode.None))
-                if (root.name.StartsWith("PropPreview assets/") && root.childCount > 0 && root.GetChild(0).gameObject.activeSelf)
+                if (root.name.StartsWith("PropPreview assets/") && root.childCount > 0 && root.GetChild(0).gameObject.activeSelf
+                    && (root.parent != null || root.GetComponent<Beatmap.Animations.ObjectAnimator>() != null || true))
                 {
                     var prefab = root.GetChild(0);
-                    Log($"  {root.name} at {prefab.position} rot {prefab.eulerAngles} scale {prefab.lossyScale}");
+                    Log($"  {root.name} at {prefab.position} rot {prefab.eulerAngles} scale {prefab.lossyScale}"
+                        + $" holder parent {(root.parent == null ? "-" : root.parent.name + " " + root.parent.position + " " + root.parent.eulerAngles)}"
+                        + $" holder local {root.localPosition} {root.localEulerAngles}");
                 }
         }
 

@@ -47,6 +47,10 @@
       <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/UnityEngine.TextCoreFontEngineModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/0Harmony.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="UnityEngine.ScreenCaptureModule">
       <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/UnityEngine.ScreenCaptureModule.dll</HintPath>
       <Private>False</Private>

@@ -90,7 +90,7 @@ namespace ChroMapper_PropPreview
             softParticles = QualitySettings.softParticles,
         };
 
-        public void Restore()
+        public void Restore(bool updateAmbient = true)
         {
             RenderSettings.ambientIntensity = ambientIntensity;
             RenderSettings.flareFadeSpeed = flareFadeSpeed;
@@ -125,6 +125,24 @@ namespace ChroMapper_PropPreview
             QualitySettings.shadowResolution = shadowResolution;
             QualitySettings.shadows = shadows;
             QualitySettings.softParticles = softParticles;
+            if (updateAmbient) UpdateAmbient();
+        }
+
+        private static (AmbientMode, Color, Color, Color, Color, float, Material?)? lastAmbient;
+
+        /// <summary>
+        /// Unity recomputes the ambient lighting that shaders see (spherical harmonics) only on
+        /// DynamicGI.UpdateEnvironment, which Vivify calls after setting render settings; without
+        /// it the map's ambient never reaches lit materials. Called when the values changed.
+        /// </summary>
+        public static void UpdateAmbient()
+        {
+            var now = (RenderSettings.ambientMode, RenderSettings.ambientLight, RenderSettings.ambientSkyColor,
+                RenderSettings.ambientEquatorColor, RenderSettings.ambientGroundColor, RenderSettings.ambientIntensity,
+                RenderSettings.skybox);
+            if (lastAmbient.HasValue && lastAmbient.Value.Equals(now)) return;
+            lastAmbient = now;
+            DynamicGI.UpdateEnvironment();
         }
 
         /// <summary>Sets one qualitySettings value (enums and ints truncated, bools nonzero).</summary>

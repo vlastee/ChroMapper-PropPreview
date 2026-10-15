@@ -49,16 +49,25 @@ Differences from the game:
   sets them with `SetFloat`, which Unity rejects).
 - TextMeshPro text in a bundle is repaired on load (the font's material and ChroMapper's own
   TextMeshPro shader), so it renders; line wrapping and box sizes can still differ from the game.
-- Seen in the game-vs-editor comparison (below) and not solved: outline effects built on
-  geometry-shader wireframes or stencil masks draw as solid white (512ea); Beat Saber's own
-  mirror/reflection surfaces don't render (4f82e); shaders animated with Unity's own clock
-  (`_Time`) and randomly seeded particles can't match a given frame of the game.
+- Seen in the game-vs-editor comparison (below) and not solved:
+  - geometry-shader wireframes and Poiyomi effects in 512ea fill whole triangles white where the
+    game draws thin outlines (ruled out: graphics API, face culling, stencil buffer, ambient and
+    reflection lighting, AudioLink, light probes; most likely the wireframe shaders' geometry
+    stage behaving differently in Unity 6);
+  - water reflections in 4f82e (its `SunMirrors/Ocean` water has no reflection texture of its
+    own; it relies on something the game provides);
+  - shaders animated with Unity's own clock (`_Time`) and randomly seeded particles can't match
+    a given frame of the game.
 - The base environment (Beat Saber's lasers, buildings, rings) is ChroMapper's approximation,
   not the game's.
-- ChroMapper evaluates Heck base providers with a swizzle (`"baseHeadPosition.xy"`) in track
-  point definitions wrongly, so prefabs on such tracks end up misplaced (the planet of 50b1e
-  sits at (0, 2750, 1) instead of 2750 m ahead). That is ChroMapper's track animation, not this
-  plugin.
+- Heck base providers (`"baseHeadPosition.xy"`, `"baseNote0Color"`...) in point definitions:
+  ChroMapper's own parsers don't read them; the plugin patches them (Harmony) with fixed values
+  for the player (head at (0, 1.7, 0) facing forward), the map's colour scheme and neutral
+  scores.
+- Prefabs on tracks that `AssignTrackParent` made children are placed by the plugin (Heck's
+  rules: `localPosition`/`localRotation` relative to the parent tracks, `position`/`rotation` as
+  world values), since ChroMapper's track animation rotates such a track's position by its own
+  rotation.
 - `xrSettings` is not applied.
 
 ## Published maps (Windows ChroMapper under Proton)
@@ -131,4 +140,6 @@ seconds, with the game camera's pose, field of view and clip planes (`PROPPREVIE
 `PROPPREVIEW_MODE=Playing`, `PROPPREVIEW_POSES`). That comparison found and fixed: prefab animations
 not following song time (now synced, `PrefabClock`), prefabs on tracks not moving (ChroMapper's
 track animator drops objects that get deactivated; prefabs now sit in always-active holders),
-`qualitySettings` and `sun`, particle sub-emitters, and TextMeshPro text.
+`qualitySettings` and `sun`, particle sub-emitters, TextMeshPro text, base providers in point
+definitions, prefabs on parented tracks, and the map's ambient light reaching lit shaders
+(`DynamicGI.UpdateEnvironment`, as Vivify does).

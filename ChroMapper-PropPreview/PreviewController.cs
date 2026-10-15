@@ -34,6 +34,8 @@ namespace ChroMapper_PropPreview
             public ObjectAnimator? Animator;
             public List<string> Tracks = new List<string>();
             public PrefabClock? Clock;
+            public string? OwnTrack; // an AssignTrackParent child track, evaluated by ParentedTracks
+            public (Vector3 pos, Quaternion rot, Vector3 scale) SpawnLocal;
         }
 
         private class MaterialProperty
@@ -59,6 +61,7 @@ namespace ChroMapper_PropPreview
         private readonly Dictionary<string, Timeline> renderSettings = new Dictionary<string, Timeline>();
         private RenderingSnapshot? renderOriginal;
         private readonly CameraPreview camera = new CameraPreview();
+        private readonly ParentedTracks parented = new ParentedTracks();
         private readonly NotePrefabs notePrefabs = new NotePrefabs();
         private readonly Animators animators = new Animators();
         private readonly PostProcessing post;
@@ -192,6 +195,9 @@ namespace ChroMapper_PropPreview
             notePrefabs.Clear(bundle);
 
             var vivify = events.Where(e => e.Data != null).OrderBy(e => e.JsonTime).ToList();
+            parented.Clear(map.PointDefinitions);
+            foreach (var ev in vivify)
+                if (ev.Type == "AssignTrackParent" || ev.Type == "AnimateTrack") parented.Add(ev);
             var v2 = map.MajorVersion == 2;
             var live = new Dictionary<string, Instance>();
             foreach (var ev in vivify)
@@ -275,6 +281,27 @@ namespace ChroMapper_PropPreview
         private IEnumerable<GameObject> TrackObjects(string track) =>
             instances.Where(i => i.Object != null && i.Object.activeSelf && i.Tracks.Contains(track)).Select(i => i.Object);
 
+        // The holder takes the parent tracks' world transform; the prefab root takes its own
+        // track's values where the track sets them: local* relative to the parents, position and
+        // rotation as world values (Vivify's TransformController).
+        private void FollowOwnTrack(Instance inst, float time)
+        {
+            if (inst.Holder == null || inst.Object == null) return;
+            var parentWorld = parented.ParentWorld(inst.OwnTrack!, time);
+            var h = inst.Holder.transform;
+            h.SetPositionAndRotation(parentWorld.GetColumn(3), parentWorld.rotation);
+            h.localScale = parentWorld.lossyScale;
+            var v = parented.Values(inst.OwnTrack!, time);
+            var t = inst.Object.transform;
+            t.localScale = v.scale ?? inst.SpawnLocal.scale;
+            if (v.localRot is Quaternion lr) t.localRotation = lr;
+            else if (v.rot is Quaternion r) t.rotation = r;
+            else t.localRotation = inst.SpawnLocal.rot;
+            if (v.localPos is Vector3 lp) t.localPosition = lp;
+            else if (v.pos is Vector3 p) t.position = p;
+            else t.localPosition = inst.SpawnLocal.pos;
+        }
+
         private Instance? Instantiate(BaseCustomEvent ev, bool v2)
         {
             var prefab = bundle!.Load<GameObject>(ev.Data["asset"]);
@@ -305,7 +332,13 @@ namespace ChroMapper_PropPreview
             var clock = new PrefabClock(go, context.Atsc.GetSecondsFromBeat(songBpmTime));
             if (!clock.Empty) inst.Clock = clock;
             inst.Tracks.AddRange(Strings(ev.Data["track"]));
-            if (inst.Tracks.Count > 0)
+            if (inst.Tracks.Count > 0 && parented.HasParent(inst.Tracks[0]))
+            {
+                // On an AssignTrackParent child track: evaluated here (ParentedTracks).
+                inst.OwnTrack = inst.Tracks[0];
+                inst.SpawnLocal = (t.localPosition, t.localRotation, t.localScale);
+            }
+            else if (inst.Tracks.Count > 0)
             {
                 // A track overwrites the pose with its own values, as Vivify's TransformController does.
                 var oa = holder.AddComponent<ObjectAnimator>();
@@ -386,6 +419,7 @@ namespace ChroMapper_PropPreview
             {
                 var on = time >= inst.Spawn && time < inst.Despawn;
                 if (inst.Object != null && inst.Object.activeSelf != on) inst.Object.SetActive(on);
+                if (inst.OwnTrack != null && on) FollowOwnTrack(inst, time);
             }
             foreach (var p in materialProperties) SetMaterial(p, Value(p, time));
             foreach (var p in globalProperties) SetGlobal(p, Value(p, time));
@@ -400,7 +434,7 @@ namespace ChroMapper_PropPreview
             camera.Skybox = null;
             if (renderOriginal != null)
             {
-                renderOriginal.Restore();
+                renderOriginal.Restore(updateAmbient: false);
                 foreach (var kv in renderSettings)
                 {
                     var v = kv.Value.Vector(time, out var s);
@@ -427,6 +461,7 @@ namespace ChroMapper_PropPreview
                     if (v is Vector4 vec) RenderingSnapshot.Set(kv.Key, vec);
                     else if (s != null && s.IsNumber) RenderingSnapshot.Set(kv.Key, new Vector4(s.AsFloat, 0, 0, 0));
                 }
+                RenderingSnapshot.UpdateAmbient();
             }
         }
 

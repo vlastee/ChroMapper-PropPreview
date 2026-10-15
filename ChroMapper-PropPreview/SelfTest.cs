@@ -60,9 +60,34 @@ namespace ChroMapper_PropPreview
             return true;
         }
 
-        private static void LogShader(string owner, Material m) =>
+        private static void LogShader(string owner, Material m)
+        {
             Log($"  material {m.name} on {owner}: shader {m.shader?.name ?? "null"}, "
-                + $"supported={m.shader != null && m.shader.isSupported}, passes={m.passCount}");
+                + $"supported={m.shader != null && m.shader.isSupported}, passes={m.passCount}, queue={m.renderQueue}");
+            if (Environment.GetEnvironmentVariable("PROPPREVIEW_SELFTEST_PASSES") != "1" || m.shader == null) return;
+            for (var i = 0; i < m.shader.passCount; i++)
+                Log($"    pass {i} \"{m.shader.FindPassTagValue(i, new UnityEngine.Rendering.ShaderTagId("LightMode")).name}\""
+                    + $" name {m.GetPassName(i)} enabled {m.GetShaderPassEnabled(m.GetPassName(i))}");
+            Log($"    keywords {string.Join(" ", m.shaderKeywords)}");
+            var stencil = new System.Collections.Generic.List<string>();
+            for (var k = 0; k < m.shader.GetPropertyCount(); k++)
+            {
+                var prop = m.shader.GetPropertyName(k);
+                if (prop.IndexOf("Stencil", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                var type = m.shader.GetPropertyType(k);
+                stencil.Add($"{prop}={(type == UnityEngine.Rendering.ShaderPropertyType.Float || type == UnityEngine.Rendering.ShaderPropertyType.Range ? m.GetFloat(prop).ToString() : type.ToString())}");
+            }
+            if (stencil.Count > 0) Log($"    stencil {string.Join(" ", stencil)}");
+            var textures = new System.Collections.Generic.List<string>();
+            foreach (var name in m.GetTexturePropertyNames())
+            {
+                var tex = m.GetTexture(name);
+                if (tex == null) continue;
+                textures.Add($"{name}={tex.name} {(tex is Texture2D t2 ? t2.format.ToString() : tex.GetType().Name)} {tex.width}x{tex.height}");
+            }
+            var color = m.HasProperty("_Color") ? m.GetColor("_Color").ToString() : "-";
+            Log($"    color {color} textures {string.Join(", ", textures)}");
+        }
 
         private static void Log(string line) => Debug.Log($"PropPreview selftest: {line}");
     }

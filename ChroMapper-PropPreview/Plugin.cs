@@ -13,6 +13,7 @@ namespace ChroMapper_PropPreview
         private void Init()
         {
             if (SelfTest.Run()) return;
+            BaseProviders.Patch(new HarmonyLib.Harmony("ChroMapper-PropPreview"));
             ScriptedOpen.Start(out _);
             SceneManager.sceneLoaded += SceneLoaded;
         }
