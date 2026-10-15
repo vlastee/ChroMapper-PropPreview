@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using SimpleJSON;
 using UnityEngine;
 
 namespace ChroMapper_PropPreview
@@ -13,6 +15,8 @@ namespace ChroMapper_PropPreview
 
         public readonly AssetBundle Bundle;
         public readonly string FileName;
+        private readonly Dictionary<string, Object?> assets = new Dictionary<string, Object?>();
+        private readonly HashSet<string> missing = new HashSet<string>();
 
         private BundleLoader(AssetBundle bundle, string fileName)
         {
@@ -32,10 +36,24 @@ namespace ChroMapper_PropPreview
                 Debug.LogError($"PropPreview: could not load {path}");
                 return null;
             }
-            var names = bundle.GetAllAssetNames();
-            Debug.Log($"PropPreview: loaded {Path.GetFileName(path)}, {names.Length} assets:\n  "
-                + string.Join("\n  ", names));
+            Debug.Log($"PropPreview: loaded {Path.GetFileName(path)} ({bundle.GetAllAssetNames().Length} assets)");
             return new BundleLoader(bundle, Path.GetFileName(path));
+        }
+
+        /// <summary>An asset by its bundle path ("assets/.../x.prefab", exact, as Vivify looks it up).</summary>
+        public T? Load<T>(JSONNode? path) where T : Object
+        {
+            if (path == null || !path.IsString) return null;
+            var name = path.Value;
+            if (!assets.TryGetValue(name, out var asset))
+            {
+                asset = Bundle.LoadAsset<Object>(name);
+                assets[name] = asset;
+            }
+            if (asset is T t) return t;
+            if (missing.Add(name))
+                Debug.LogWarning($"PropPreview: {FileName} has no {typeof(T).Name} \"{name}\"");
+            return null;
         }
 
         public void Unload() => Bundle.Unload(true);

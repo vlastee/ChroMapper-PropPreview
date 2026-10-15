@@ -9,31 +9,25 @@ namespace ChroMapper_PropPreview
         // ChroMapper's map editor scene.
         private const int MapEditScene = 3;
 
-        private BundleLoader? loader;
-
         [Init]
-        private void Init() => SceneManager.sceneLoaded += SceneLoaded;
-
-        [Exit]
-        private void Exit()
+        private void Init()
         {
-            SceneManager.sceneLoaded -= SceneLoaded;
-            loader?.Unload();
+            if (SelfTest.Run()) return;
+            ScriptedOpen.Start(out _);
+            SceneManager.sceneLoaded += SceneLoaded;
         }
 
+        [Exit]
+        private void Exit() => SceneManager.sceneLoaded -= SceneLoaded;
+
+        // The controller lives in the editor scene and goes away with it. Environment scenes load
+        // additively on top, so only the editor scene itself counts.
         private void SceneLoaded(Scene scene, LoadSceneMode mode)
         {
-            loader?.Unload();
-            loader = null;
-            if (scene.buildIndex != MapEditScene) return;
-            try
-            {
-                loader = BundleLoader.ForMap(BeatSaberSongContainer.Instance.Info.Directory);
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogException(e);
-            }
+            if (scene.buildIndex != MapEditScene || mode != LoadSceneMode.Single) return;
+            var host = new GameObject("PropPreview");
+            SceneManager.MoveGameObjectToScene(host, scene);
+            host.AddComponent<PreviewController>();
         }
     }
 }
