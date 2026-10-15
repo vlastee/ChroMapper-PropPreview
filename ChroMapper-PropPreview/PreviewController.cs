@@ -4,6 +4,7 @@ using System.Linq;
 using Beatmap.Animations;
 using Beatmap.Base;
 using Beatmap.Base.Customs;
+using Beatmap.Containers;
 using Beatmap.Enums;
 using SimpleJSON;
 using UnityEngine;
@@ -16,14 +17,14 @@ namespace ChroMapper_PropPreview
     /// Shows the map's Vivify events at the current song time in the map editor:
     /// InstantiatePrefab / DestroyObject (prefab instances, moved by Heck tracks through
     /// ChroMapper's own track animation), SetMaterialProperty, SetGlobalProperty and
-    /// SetRenderingSettings (renderSettings). Everything is recomputed from the song time, so
+    /// SetRenderingSettings (renderSettings), SetCameraProperty (CameraPreview), AssignObjectPrefab
+    /// (NotePrefabs), SetAnimatorProperty (Animators), and CreateScreenTexture, CreateCamera and
+    /// Blit (PostProcessing). Everything is recomputed from the song time, so
     /// scrubbing works in both directions. Any edit to the custom events rebuilds the timeline.
     /// </summary>
     [DefaultExecutionOrder(10000)] // after ChroMapper's track animators have written the poses
     public class PreviewController : MonoBehaviour
     {
-        private const int BloomfogSkyLayer = 29; // ChroMapper's fog backdrop, painted over a skybox
-
         private class Instance
         {
             public GameObject Object = null!;
@@ -54,12 +55,18 @@ namespace ChroMapper_PropPreview
         private readonly List<MaterialProperty> globalProperties = new List<MaterialProperty>();
         private readonly Dictionary<string, Timeline> renderSettings = new Dictionary<string, Timeline>();
         private RenderingSnapshot? renderOriginal;
-        private Material? skybox;
-        private readonly Dictionary<Camera, (CameraClearFlags flags, int mask)> skyCameras =
-            new Dictionary<Camera, (CameraClearFlags, int)>();
+        private readonly CameraPreview camera = new CameraPreview();
+        private readonly NotePrefabs notePrefabs = new NotePrefabs();
+        private readonly Animators animators = new Animators();
+        private readonly PostProcessing post;
+        private float lastTime = float.NegativeInfinity;
+
+        /// <summary>The controller of the open map editor, for the plugin's ObjectLoaded hook.</summary>
+        public static PreviewController? Current { get; private set; }
+
+        public PreviewController() => post = new PostProcessing(camera, TrackObjects);
 
         private CustomEventGridContainer? grid;
-        private CameraManager? cameraManager;
 
         private void Start()
         {
@@ -68,7 +75,10 @@ namespace ChroMapper_PropPreview
             BeatmapActionContainer.OnActionCreated += OnAction;
             BeatmapActionContainer.OnActionUndo += OnAction;
             BeatmapActionContainer.OnActionRedo += OnAction;
+            Camera.onPreCull += OnCameraPreCull;
             Camera.onPreRender += OnCameraPreRender;
+            Camera.onPostRender += OnCameraPostRender;
+            Current = this;
         }
 
         private void OnDestroy()
@@ -78,7 +88,10 @@ namespace ChroMapper_PropPreview
             BeatmapActionContainer.OnActionCreated -= OnAction;
             BeatmapActionContainer.OnActionUndo -= OnAction;
             BeatmapActionContainer.OnActionRedo -= OnAction;
+            Camera.onPreCull -= OnCameraPreCull;
             Camera.onPreRender -= OnCameraPreRender;
+            Camera.onPostRender -= OnCameraPostRender;
+            if (Current == this) Current = null;
             if (grid != null)
             {
                 grid.OnObjectSpawned -= OnCustomEvent;
@@ -131,12 +144,19 @@ namespace ChroMapper_PropPreview
             renderSettings.Clear();
             renderOriginal?.Restore();
             renderOriginal = null;
-            skybox = null;
-            RestoreCameras();
+            camera.Clear();
+            animators.Clear();
+            post.Clear();
+            if (!notePrefabs.Empty)
+            {
+                notePrefabs.Clear(null);
+                DressNotes();
+            }
         }
 
         private void Rebuild(BaseDifficulty map)
         {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             Clear();
             events = map.CustomEvents;
             context = FindAnyObjectByType<BeatmapRuntimeContext>();
@@ -159,6 +179,7 @@ namespace ChroMapper_PropPreview
                 bundleDir = dir;
             }
             if (bundle == null || context == null || tracksManager == null) return;
+            notePrefabs.Clear(bundle);
 
             var vivify = events.Where(e => e.Data != null).OrderBy(e => e.JsonTime).ToList();
             var v2 = map.MajorVersion == 2;
@@ -193,12 +214,56 @@ namespace ChroMapper_PropPreview
                     case "SetRenderingSettings":
                         AddRenderSettings(ev);
                         break;
+                    case "SetCameraProperty":
+                        camera.Add(ev.JsonTime, ev.Data);
+                        break;
+                    case "AssignObjectPrefab":
+                        notePrefabs.Add(ev);
+                        break;
+                    case "SetAnimatorProperty":
+                        var animatorId = ev.Data["id"];
+                        if (animatorId != null && animatorId.IsString && live.TryGetValue(animatorId.Value, out var owner))
+                            animators.Add(ev, owner.Object);
+                        break;
+                    case "CreateScreenTexture":
+                        post.AddScreenTexture(ev.JsonTime, ev.Data);
+                        break;
+                    case "CreateCamera":
+                        post.AddCamera(ev.JsonTime, ev.Data);
+                        break;
+                    case "Blit":
+                        var blitMaterial = bundle.Load<Material>(ev.Data["asset"]);
+                        post.AddBlit(ev.JsonTime, ev.Data, blitMaterial);
+                        if (blitMaterial != null) AddProperties(ev, materialProperties, blitMaterial);
+                        break;
                 }
             }
             if (renderSettings.Count > 0) renderOriginal = RenderingSnapshot.Take();
+            DressNotes();
+            if (!notePrefabs.Empty)
+                Debug.Log($"PropPreview: note prefabs on {notePrefabs.Attached} of {notePrefabs.Dressed} containers on screen");
             Debug.Log($"PropPreview: {instances.Count} prefabs, {materialProperties.Count} material "
-                + $"properties, {globalProperties.Count} globals, {renderSettings.Count} render settings");
+                + $"properties, {globalProperties.Count} globals, {renderSettings.Count} render settings "
+                + $"from {vivify.Count} events in {clock.ElapsedMilliseconds} ms");
         }
+
+        /// <summary>Called for every note, chain (and other) container ChroMapper spawns.</summary>
+        public void ContainerLoaded(ObjectContainer container) => notePrefabs.Apply(container);
+
+        // Re-dresses the note and chain containers already on screen.
+        private void DressNotes()
+        {
+            foreach (var type in new[] { ObjectType.Note, ObjectType.Chain })
+            {
+                var collection = BeatmapObjectContainerCollection.GetCollectionForType(type);
+                if (collection == null) continue;
+                foreach (var c in collection.LoadedContainers.Values.ToList()) notePrefabs.Apply(c);
+            }
+        }
+
+        // Prefab instances on a track that exist at the current time (for camera culling).
+        private IEnumerable<GameObject> TrackObjects(string track) =>
+            instances.Where(i => i.Object != null && i.Object.activeSelf && i.Tracks.Contains(track)).Select(i => i.Object);
 
         private Instance? Instantiate(BaseCustomEvent ev, bool v2)
         {
@@ -296,16 +361,21 @@ namespace ChroMapper_PropPreview
             }
             foreach (var p in materialProperties) SetMaterial(p, Value(p, time));
             foreach (var p in globalProperties) SetGlobal(p, Value(p, time));
+            camera.Evaluate(time);
+            var playing = context.Atsc.IsPlaying;
+            animators.Apply(time, playing);
+            post.Evaluate(time, lastTime, playing);
+            lastTime = time;
+            camera.Skybox = null;
             if (renderOriginal != null)
             {
                 renderOriginal.Restore();
-                skybox = null;
                 foreach (var kv in renderSettings)
                 {
                     var v = kv.Value.Vector(time, out var s);
                     if (kv.Key == "skybox")
                     {
-                        if (s != null && s.IsString) skybox = bundle?.Load<Material>(s);
+                        if (s != null && s.IsString) camera.Skybox = bundle?.Load<Material>(s);
                         continue;
                     }
                     if (v is Vector4 vec) RenderingSnapshot.Set(kv.Key, vec);
@@ -390,40 +460,15 @@ namespace ChroMapper_PropPreview
             }
         }
 
-        // ChroMapper's bloomfog clears to a colour and draws a fog backdrop: with a Vivify skybox,
-        // the view camera (editing or playing, not ChroMapper's helper cameras such as mirror
-        // reflections) gets a Skybox component, clears to it and skips the backdrop layer.
+        private void OnCameraPreCull(Camera cam) => post.OnPreCull(cam);
+
         private void OnCameraPreRender(Camera cam)
         {
-            if (skybox == null)
-            {
-                if (skyCameras.Count > 0) RestoreCameras();
-                return;
-            }
-            if (cameraManager == null) cameraManager = FindAnyObjectByType<CameraManager>();
-            if (cameraManager == null || cameraManager.SelectedCameraController == null
-                || cam != cameraManager.SelectedCameraController.Camera) return;
-            if (!skyCameras.ContainsKey(cam)) skyCameras[cam] = (cam.clearFlags, cam.cullingMask);
-            var sky = cam.GetComponent<Skybox>();
-            if (sky == null) sky = cam.gameObject.AddComponent<Skybox>();
-            sky.material = skybox;
-            sky.enabled = true;
-            cam.clearFlags = CameraClearFlags.Skybox;
-            cam.cullingMask &= ~(1 << BloomfogSkyLayer);
+            camera.OnPreRender(cam);
+            post.OnPreRender(cam);
         }
 
-        private void RestoreCameras()
-        {
-            foreach (var kv in skyCameras)
-            {
-                if (kv.Key == null) continue;
-                kv.Key.clearFlags = kv.Value.flags;
-                kv.Key.cullingMask = kv.Value.mask;
-                var sky = kv.Key.GetComponent<Skybox>();
-                if (sky != null) sky.enabled = false;
-            }
-            skyCameras.Clear();
-        }
+        private void OnCameraPostRender(Camera cam) => post.OnPostRender(cam);
 
         // ---- JSON helpers ----
 

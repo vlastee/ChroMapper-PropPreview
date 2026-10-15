@@ -37,12 +37,20 @@ namespace ChroMapper_PropPreview
         public Entry? At(float time, out float progress)
         {
             progress = 1;
-            Entry? found = null;
-            foreach (var e in entries)
+            // The last entry that has started (entries are in time order): binary search, since
+            // a map can have hundreds of thousands of events on one property.
+            int lo = 0, hi = entries.Count - 1, at = -1;
+            while (lo <= hi)
             {
-                if (e.Time > time) break;
-                found = e;
+                var mid = (lo + hi) / 2;
+                if (entries[mid].Time <= time)
+                {
+                    at = mid;
+                    lo = mid + 1;
+                }
+                else hi = mid - 1;
             }
+            var found = at < 0 ? null : entries[at];
             // Durations are in beats here; Vivify converts them at the BPM where the event starts.
             if (found != null && found.Duration > 0)
                 progress = found.Easing(Mathf.Clamp01((time - found.Time) / found.Duration));

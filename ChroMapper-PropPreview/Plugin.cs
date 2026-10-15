@@ -17,6 +17,11 @@ namespace ChroMapper_PropPreview
             SceneManager.sceneLoaded += SceneLoaded;
         }
 
+        // Every container ChroMapper spawns (notes, chains, walls, events...): note prefabs.
+        [ObjectLoaded]
+        private void ObjectLoaded(Beatmap.Containers.ObjectContainer container) =>
+            PreviewController.Current?.ContainerLoaded(container);
+
         [Exit]
         private void Exit() => SceneManager.sceneLoaded -= SceneLoaded;
 

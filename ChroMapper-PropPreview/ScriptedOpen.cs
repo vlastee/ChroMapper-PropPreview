@@ -11,7 +11,7 @@ namespace ChroMapper_PropPreview
 {
     /// <summary>
     /// Unattended preview check: with PROPPREVIEW_OPEN=&lt;map folder&gt;, ChroMapper opens that map
-    /// (PROPPREVIEW_DIFF, default Expert, Standard characteristic) the way its song menu does,
+    /// (PROPPREVIEW_DIFF, default Expert; PROPPREVIEW_CHAR, default Standard) the way its song menu does,
     /// seeks to each beat of PROPPREVIEW_SHOTS ("8,64,...") and saves &lt;beat&gt;.png in
     /// PROPPREVIEW_OUT (with PROPPREVIEW_NOBLOOM=1 also &lt;beat&gt;-nobloom.png, ChroMapper's
     /// bloomfog switched off), then quits. The song menu's edit button is pressed without saving (its
@@ -42,6 +42,7 @@ namespace ChroMapper_PropPreview
         {
             var dir = Environment.GetEnvironmentVariable("PROPPREVIEW_OPEN")!;
             var diff = Environment.GetEnvironmentVariable("PROPPREVIEW_DIFF") ?? "Expert";
+            var characteristic = Environment.GetEnvironmentVariable("PROPPREVIEW_CHAR") ?? "Standard";
             var outDir = Environment.GetEnvironmentVariable("PROPPREVIEW_OUT") ?? dir;
             var shots = (Environment.GetEnvironmentVariable("PROPPREVIEW_SHOTS") ?? "8")
                 .Split(',').Select(s => float.Parse(s, CultureInfo.InvariantCulture)).ToArray();
@@ -57,7 +58,7 @@ namespace ChroMapper_PropPreview
                 if (failed) yield break;
                 yield return new WaitForSeconds(2);
                 settings.LastLoadedMap = dir;
-                settings.LastLoadedChar = "Standard";
+                settings.LastLoadedChar = characteristic;
                 settings.LastLoadedDiff = diff;
                 BeatSaberSongContainer.Instance.SelectSongForEditing(BeatSaberSongUtils.GetInfoFromFolder(dir));
                 yield return Until(() => SceneManager.GetActiveScene().name == "02_SongEditMenu", 60, "song menu");

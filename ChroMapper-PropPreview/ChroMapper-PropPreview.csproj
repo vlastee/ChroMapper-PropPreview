@@ -27,6 +27,10 @@
       <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/UnityEngine.AssetBundleModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/UnityEngine.AnimationModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="UnityEngine.ScreenCaptureModule">
       <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/UnityEngine.ScreenCaptureModule.dll</HintPath>
       <Private>False</Private>
