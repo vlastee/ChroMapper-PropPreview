@@ -27,11 +27,13 @@ namespace ChroMapper_PropPreview
     {
         private class Instance
         {
-            public GameObject Object = null!;
+            public GameObject Object = null!;  // the prefab instance, shown while it exists
+            public GameObject Holder = null!;  // its always-active parent: pose and track link
             public float Spawn;
             public float Despawn = float.PositiveInfinity;
             public ObjectAnimator? Animator;
             public List<string> Tracks = new List<string>();
+            public PrefabClock? Clock;
         }
 
         private class MaterialProperty
@@ -51,6 +53,7 @@ namespace ChroMapper_PropPreview
         private bool dirty = true;
 
         private readonly List<Instance> instances = new List<Instance>();
+        private readonly Dictionary<string, Instance> ids = new Dictionary<string, Instance>(); // last instance per id
         private readonly List<MaterialProperty> materialProperties = new List<MaterialProperty>();
         private readonly List<MaterialProperty> globalProperties = new List<MaterialProperty>();
         private readonly Dictionary<string, Timeline> renderSettings = new Dictionary<string, Timeline>();
@@ -72,6 +75,9 @@ namespace ChroMapper_PropPreview
         {
             LoadInitialMap.OnLevelLoaded += MarkDirty;
             LoadedDifficultySelectController.OnLoadedDifficultyChanged += MarkDirty;
+            // Switching modes resets ChroMapper's animation tracks (and AnimateTrack only reaches
+            // them in Preview/Playing with Animations on), so prefabs re-attach to their tracks.
+            UIMode.OnUIModeSwitched += OnUIMode;
             BeatmapActionContainer.OnActionCreated += OnAction;
             BeatmapActionContainer.OnActionUndo += OnAction;
             BeatmapActionContainer.OnActionRedo += OnAction;
@@ -85,6 +91,7 @@ namespace ChroMapper_PropPreview
         {
             LoadInitialMap.OnLevelLoaded -= MarkDirty;
             LoadedDifficultySelectController.OnLoadedDifficultyChanged -= MarkDirty;
+            UIMode.OnUIModeSwitched -= OnUIMode;
             BeatmapActionContainer.OnActionCreated -= OnAction;
             BeatmapActionContainer.OnActionUndo -= OnAction;
             BeatmapActionContainer.OnActionRedo -= OnAction;
@@ -103,6 +110,7 @@ namespace ChroMapper_PropPreview
 
         private void MarkDirty() => dirty = true;
         private void OnAction(BeatmapAction _) => dirty = true;
+        private void OnUIMode(UIModeType _) => dirty = true;
         private void OnCustomEvent(BaseCustomEvent _) => dirty = true;
 
         private void LateUpdate()
@@ -130,13 +138,15 @@ namespace ChroMapper_PropPreview
 
         private void Clear()
         {
+            if (instances.Count > 0) Debug.Log($"PropPreview: clearing {instances.Count} prefab instances");
             foreach (var inst in instances)
             {
                 if (inst.Animator != null && tracksManager != null)
                     foreach (var t in inst.Tracks) tracksManager.GetAnimationTrack(t).RemoveChild(inst.Animator);
-                if (inst.Object != null) Destroy(inst.Object);
+                if (inst.Holder != null) Destroy(inst.Holder);
             }
             instances.Clear();
+            ids.Clear();
             foreach (var p in materialProperties) SetMaterial(p, p.Original);
             foreach (var p in globalProperties) SetGlobal(p, p.Original);
             materialProperties.Clear();
@@ -193,7 +203,7 @@ namespace ChroMapper_PropPreview
                         if (inst == null) break;
                         instances.Add(inst);
                         var id = ev.Data["id"];
-                        if (id != null && id.IsString) live[id.Value] = inst;
+                        if (id != null && id.IsString) live[id.Value] = ids[id.Value] = inst;
                         break;
                     case "DestroyObject":
                         foreach (var name in Strings(ev.Data["id"]))
@@ -269,31 +279,39 @@ namespace ChroMapper_PropPreview
         {
             var prefab = bundle!.Load<GameObject>(ev.Data["asset"]);
             if (prefab == null) return null;
-            var go = UnityEngine.Object.Instantiate(prefab);
-            go.name = $"PropPreview {ev.Data["asset"].Value}";
+            // The prefab sits in an always-active holder at the origin, which carries the track
+            // link (ChroMapper's ObjectAnimator leaves its tracks when its object is deactivated
+            // and never rejoins them); only the prefab is shown and hidden. The event's fields,
+            // the track and the prefab's own Animator all write the prefab root, as in Vivify.
+            var holder = new GameObject($"PropPreview {ev.Data["asset"].Value}");
+            var go = UnityEngine.Object.Instantiate(prefab, holder.transform, false);
+            TextRepair.Repair(go);
+            var t = go.transform;
             var env = context.Descriptor;
             if (env != null)
             {
-                SceneManager.MoveGameObjectToScene(go, env.gameObject.scene);
-                SetLayer(go.transform, env.gameObject.layer);
+                SceneManager.MoveGameObjectToScene(holder, env.gameObject.scene);
+                SetLayer(holder.transform, env.gameObject.layer);
             }
             // localPosition wins over position, localRotation over rotation (Vivify TransformData).
-            var t = go.transform;
             if (Vector3Of(ev.Data["localPosition"]) is Vector3 lp) t.localPosition = lp;
             else if (Vector3Of(ev.Data["position"]) is Vector3 p) t.position = p;
             if (Vector3Of(ev.Data["localRotation"]) is Vector3 lr) t.localRotation = Quaternion.Euler(lr);
             else if (Vector3Of(ev.Data["rotation"]) is Vector3 r) t.rotation = Quaternion.Euler(r);
             if (Vector3Of(ev.Data["scale"]) is Vector3 s) t.localScale = s;
 
-            var inst = new Instance { Object = go, Spawn = ev.JsonTime };
+            var inst = new Instance { Object = go, Holder = holder, Spawn = ev.JsonTime };
+            var songBpmTime = BeatSaberSongContainer.Instance.Map.JsonTimeToSongBpmTime(ev.JsonTime) ?? ev.JsonTime;
+            var clock = new PrefabClock(go, context.Atsc.GetSecondsFromBeat(songBpmTime));
+            if (!clock.Empty) inst.Clock = clock;
             inst.Tracks.AddRange(Strings(ev.Data["track"]));
             if (inst.Tracks.Count > 0)
             {
                 // A track overwrites the pose with its own values, as Vivify's TransformController does.
-                var oa = go.AddComponent<ObjectAnimator>();
+                var oa = holder.AddComponent<ObjectAnimator>();
                 oa.Context = context;
                 oa.TracksManager = tracksManager;
-                oa.AttachToEnvironmentObject(t, inst.Tracks[0], v2);
+                oa.AttachToEnvironmentObject(t, inst.Tracks[0], v2); // targets the prefab root
                 foreach (var extra in inst.Tracks.Skip(1)) oa.AddParent(extra);
                 inst.Animator = oa;
             }
@@ -326,14 +344,24 @@ namespace ChroMapper_PropPreview
         private void AddRenderSettings(BaseCustomEvent ev)
         {
             var settings = ev.Data["renderSettings"];
-            if (settings == null || !settings.IsObject) return;
-            foreach (var kv in settings.AsObject)
-            {
-                if (!RenderingSnapshot.Width.TryGetValue(kv.Key, out var width)) continue;
-                if (!renderSettings.TryGetValue(kv.Key, out var timeline))
-                    renderSettings[kv.Key] = timeline = new Timeline();
-                timeline.Add(Entry(ev, kv.Value, width));
-            }
+            if (settings != null && settings.IsObject)
+                foreach (var kv in settings.AsObject)
+                {
+                    if (!RenderingSnapshot.Width.TryGetValue(kv.Key, out var width)) continue;
+                    if (!renderSettings.TryGetValue(kv.Key, out var timeline))
+                        renderSettings[kv.Key] = timeline = new Timeline();
+                    timeline.Add(Entry(ev, kv.Value, width));
+                }
+            var quality = ev.Data["qualitySettings"];
+            if (quality != null && quality.IsObject)
+                foreach (var kv in quality.AsObject)
+                {
+                    if (!RenderingSnapshot.Quality.Contains(kv.Key)) continue;
+                    var key = "quality:" + kv.Key;
+                    if (!renderSettings.TryGetValue(key, out var timeline))
+                        renderSettings[key] = timeline = new Timeline();
+                    timeline.Add(Entry(ev, kv.Value, 1));
+                }
         }
 
         private static Timeline.Entry Entry(BaseCustomEvent ev, JSONNode value, int width)
@@ -363,6 +391,9 @@ namespace ChroMapper_PropPreview
             foreach (var p in globalProperties) SetGlobal(p, Value(p, time));
             camera.Evaluate(time);
             var playing = context.Atsc.IsPlaying;
+            var seconds = context.Atsc.CurrentSeconds;
+            foreach (var inst in instances)
+                inst.Clock?.Sync(seconds, () => animators.Apply(time, playing));
             animators.Apply(time, playing);
             post.Evaluate(time, lastTime, playing);
             lastTime = time;
@@ -376,6 +407,21 @@ namespace ChroMapper_PropPreview
                     if (kv.Key == "skybox")
                     {
                         if (s != null && s.IsString) camera.Skybox = bundle?.Load<Material>(s);
+                        continue;
+                    }
+                    if (kv.Key == "sun")
+                    {
+                        // The first directional light in the prefab instance with that id.
+                        if (s != null && s.IsString && ids.TryGetValue(s.Value, out var sunInst) && sunInst.Object != null)
+                            RenderSettings.sun = sunInst.Object.GetComponentsInChildren<Light>(true)
+                                .FirstOrDefault(l => l.type == LightType.Directional);
+                        continue;
+                    }
+                    if (kv.Key.StartsWith("quality:"))
+                    {
+                        var q = kv.Key.Substring(8);
+                        if (v is Vector4 qv) RenderingSnapshot.SetQuality(q, qv.x);
+                        else if (s != null && (s.IsNumber || s.IsBoolean)) RenderingSnapshot.SetQuality(q, s.IsBoolean ? (s.AsBool ? 1 : 0) : s.AsFloat);
                         continue;
                     }
                     if (v is Vector4 vec) RenderingSnapshot.Set(kv.Key, vec);

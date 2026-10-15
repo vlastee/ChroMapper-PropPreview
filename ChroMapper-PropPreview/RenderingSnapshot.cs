@@ -5,8 +5,9 @@ using UnityEngine.Rendering;
 namespace ChroMapper_PropPreview
 {
     /// <summary>
-    /// The RenderSettings that Vivify's SetRenderingSettings can change (its renderSettings
-    /// category), captured so the preview can put ChroMapper's own values back. The skybox is not
+    /// The RenderSettings and QualitySettings that Vivify's SetRenderingSettings can change (its
+    /// renderSettings and qualitySettings categories), captured so the preview can put
+    /// ChroMapper's own values back. The skybox is not
     /// here: ChroMapper's bloomfog owns RenderSettings.skybox, so the preview draws a Vivify sky
     /// with a Skybox component on the camera instead.
     /// </summary>
@@ -22,8 +23,25 @@ namespace ChroMapper_PropPreview
             ["defaultReflectionResolution"] = 1, ["reflectionBounces"] = 1,
             ["ambientLight"] = 4, ["ambientSkyColor"] = 4, ["ambientEquatorColor"] = 4,
             ["ambientGroundColor"] = 4, ["fogColor"] = 4, ["subtractiveShadowColor"] = 4,
-            ["skybox"] = 1,
+            ["skybox"] = 1, ["sun"] = 1,
         };
+
+        /// <summary>qualitySettings keys (all single numbers, enums as their index).</summary>
+        public static readonly HashSet<string> Quality = new HashSet<string>
+        {
+            "anisotropicFiltering", "antiAliasing", "pixelLightCount", "realtimeReflectionProbes",
+            "shadowCascades", "shadowDistance", "shadowmaskMode", "shadowNearPlaneOffset",
+            "shadowProjection", "shadowResolution", "shadows", "softParticles",
+        };
+
+        private AnisotropicFiltering anisotropic;
+        private int antiAliasing, pixelLights, shadowCascades;
+        private bool reflectionProbes, softParticles;
+        private float shadowDistance, shadowNearPlaneOffset;
+        private ShadowmaskMode shadowmask;
+        private ShadowProjection shadowProjection;
+        private ShadowResolution shadowResolution;
+        private ShadowQuality shadows;
 
         private float ambientIntensity, flareFadeSpeed, flareStrength, fogDensity, fogStart, fogEnd,
             haloStrength, reflectionIntensity;
@@ -33,6 +51,7 @@ namespace ChroMapper_PropPreview
         private DefaultReflectionMode reflectionMode;
         private int reflectionResolution, reflectionBounces;
         private Color ambientLight, ambientSky, ambientEquator, ambientGround, fogColor, shadowColor;
+        private Light? sun;
 
         public static RenderingSnapshot Take() => new RenderingSnapshot
         {
@@ -56,6 +75,19 @@ namespace ChroMapper_PropPreview
             ambientGround = RenderSettings.ambientGroundColor,
             fogColor = RenderSettings.fogColor,
             shadowColor = RenderSettings.subtractiveShadowColor,
+            sun = RenderSettings.sun,
+            anisotropic = QualitySettings.anisotropicFiltering,
+            antiAliasing = QualitySettings.antiAliasing,
+            pixelLights = QualitySettings.pixelLightCount,
+            reflectionProbes = QualitySettings.realtimeReflectionProbes,
+            shadowCascades = QualitySettings.shadowCascades,
+            shadowDistance = QualitySettings.shadowDistance,
+            shadowmask = QualitySettings.shadowmaskMode,
+            shadowNearPlaneOffset = QualitySettings.shadowNearPlaneOffset,
+            shadowProjection = QualitySettings.shadowProjection,
+            shadowResolution = QualitySettings.shadowResolution,
+            shadows = QualitySettings.shadows,
+            softParticles = QualitySettings.softParticles,
         };
 
         public void Restore()
@@ -80,6 +112,39 @@ namespace ChroMapper_PropPreview
             RenderSettings.ambientGroundColor = ambientGround;
             RenderSettings.fogColor = fogColor;
             RenderSettings.subtractiveShadowColor = shadowColor;
+            RenderSettings.sun = sun;
+            QualitySettings.anisotropicFiltering = anisotropic;
+            QualitySettings.antiAliasing = antiAliasing;
+            QualitySettings.pixelLightCount = pixelLights;
+            QualitySettings.realtimeReflectionProbes = reflectionProbes;
+            QualitySettings.shadowCascades = shadowCascades;
+            QualitySettings.shadowDistance = shadowDistance;
+            QualitySettings.shadowmaskMode = shadowmask;
+            QualitySettings.shadowNearPlaneOffset = shadowNearPlaneOffset;
+            QualitySettings.shadowProjection = shadowProjection;
+            QualitySettings.shadowResolution = shadowResolution;
+            QualitySettings.shadows = shadows;
+            QualitySettings.softParticles = softParticles;
+        }
+
+        /// <summary>Sets one qualitySettings value (enums and ints truncated, bools nonzero).</summary>
+        public static void SetQuality(string key, float v)
+        {
+            switch (key)
+            {
+                case "anisotropicFiltering": QualitySettings.anisotropicFiltering = (AnisotropicFiltering)(int)v; break;
+                case "antiAliasing": QualitySettings.antiAliasing = (int)v; break;
+                case "pixelLightCount": QualitySettings.pixelLightCount = (int)v; break;
+                case "realtimeReflectionProbes": QualitySettings.realtimeReflectionProbes = v != 0; break;
+                case "shadowCascades": QualitySettings.shadowCascades = (int)v; break;
+                case "shadowDistance": QualitySettings.shadowDistance = v; break;
+                case "shadowmaskMode": QualitySettings.shadowmaskMode = (ShadowmaskMode)(int)v; break;
+                case "shadowNearPlaneOffset": QualitySettings.shadowNearPlaneOffset = v; break;
+                case "shadowProjection": QualitySettings.shadowProjection = (ShadowProjection)(int)v; break;
+                case "shadowResolution": QualitySettings.shadowResolution = (ShadowResolution)(int)v; break;
+                case "shadows": QualitySettings.shadows = (ShadowQuality)(int)v; break;
+                case "softParticles": QualitySettings.softParticles = v != 0; break;
+            }
         }
 
         /// <summary>Sets one setting; enums and ints are truncated, fog is on when nonzero (as Vivify).</summary>

@@ -20,9 +20,9 @@ What it previews, at the editor's current time, rebuilt after every edit:
 
 | Event | Preview |
 |---|---|
-| `InstantiatePrefab` / `DestroyObject` | each instance exists from its event until the `DestroyObject` for its `id`; spawn transform from `position`/`localPosition`, `rotation`/`localRotation`, `scale`; with a `track`, ChroMapper's own track animation moves it (`AnimateTrack` replaces the spawn pose, as in Vivify; `AssignTrackParent` applies) |
+| `InstantiatePrefab` / `DestroyObject` | each instance exists from its event until the `DestroyObject` for its `id`; spawn transform from `position`/`localPosition`, `rotation`/`localRotation`, `scale`; with a `track`, ChroMapper's own track animation moves it (`AnimateTrack` replaces the spawn pose, as in Vivify; `AssignTrackParent` applies); its Animators and particle systems play at the song's time since the spawn, as Vivify syncs them, also when scrubbing |
 | `SetMaterialProperty` / `SetGlobalProperty` | Float, Color, Vector, Texture, Keyword |
-| `SetRenderingSettings` | the `renderSettings` values; `skybox` |
+| `SetRenderingSettings` | the `renderSettings` values, `skybox`, `sun` (a prefab's directional light), and `qualitySettings` (shadows, anti-aliasing, pixel lights...) |
 | `SetCameraProperty` | `clearFlags` (the skybox shows only with `Skybox`, as in the game), `backgroundColor`, `depthTextureMode`, `culling`, on the view camera (`_Main`) or a `CreateCamera` camera |
 | `AssignObjectPrefab` | note, bomb, chain and chain-link prefabs on ChroMapper's notes, `Single`/`Additive`, `anyDirectionAsset` for dot notes; the prefab gets the note's colour and dissolve |
 | `SetAnimatorProperty` | Bool, Float and Trigger on prefab instances; animators run while the song plays |
@@ -42,10 +42,24 @@ Differences from the game:
   spawn, and live notes change with the event).
 - `BeforeMainEffect` and `AfterMainEffect` both run after ChroMapper's bloom, which stands in for
   the game's main effect; a `CreateCamera` camera's `mainEffect` and `bloomPrePass` are ignored.
-- Animator states don't rewind when you scrub backwards; triggers fire only while playing.
-  `Integer` animator properties are skipped (Vivify sets them with `SetFloat`, which Unity rejects).
-- TextMeshPro text inside a bundle can throw in ChroMapper (seen on 4968d); the rest still works.
-- `qualitySettings`/`xrSettings` are not applied.
+- Track animation (`AnimateTrack` on prefab tracks) shows in ChroMapper's Preview and Playing
+  modes with its Animations setting on, like ChroMapper's own Noodle previews; in the normal
+  editing view prefabs stay at their spawn pose.
+- Animator triggers fire only while playing. `Integer` animator properties are skipped (Vivify
+  sets them with `SetFloat`, which Unity rejects).
+- TextMeshPro text in a bundle is repaired on load (the font's material and ChroMapper's own
+  TextMeshPro shader), so it renders; line wrapping and box sizes can still differ from the game.
+- Seen in the game-vs-editor comparison (below) and not solved: outline effects built on
+  geometry-shader wireframes or stencil masks draw as solid white (512ea); Beat Saber's own
+  mirror/reflection surfaces don't render (4f82e); shaders animated with Unity's own clock
+  (`_Time`) and randomly seeded particles can't match a given frame of the game.
+- The base environment (Beat Saber's lasers, buildings, rings) is ChroMapper's approximation,
+  not the game's.
+- ChroMapper evaluates Heck base providers with a swizzle (`"baseHeadPosition.xy"`) in track
+  point definitions wrongly, so prefabs on such tracks end up misplaced (the planet of 50b1e
+  sits at (0, 2750, 1) instead of 2750 m ahead). That is ChroMapper's track animation, not this
+  plugin.
+- `xrSettings` is not applied.
 
 ## Published maps (Windows ChroMapper under Proton)
 
@@ -108,3 +122,13 @@ Results go to ChroMapper's log (`~/.config/unity3d/BinaryElement/ChroMapper/Chro
 under Proton `<prefix>/pfx/drive_c/users/steamuser/AppData/LocalLow/BinaryElement/ChroMapper/`),
 in lines that start with `PropPreview`. Under Proton, pass Windows paths (`Z:\...`), and stop a
 gamescope left behind after ChroMapper quits by its PID.
+
+## Game vs editor comparison
+
+Ten published Vivify maps were played in the game (headless, 1.40.8) with screenshots at 15, 35,
+60 and 85 % of the song, then opened in the Windows ChroMapper under Proton at the same song
+seconds, with the game camera's pose, field of view and clip planes (`PROPPREVIEW_SECONDS`,
+`PROPPREVIEW_MODE=Playing`, `PROPPREVIEW_POSES`). That comparison found and fixed: prefab animations
+not following song time (now synced, `PrefabClock`), prefabs on tracks not moving (ChroMapper's
+track animator drops objects that get deactivated; prefabs now sit in always-active holders),
+`qualitySettings` and `sun`, particle sub-emitters, and TextMeshPro text.

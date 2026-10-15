@@ -31,6 +31,22 @@
       <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/UnityEngine.AnimationModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule">
+      <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/UnityEngine.ParticleSystemModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/Unity.TextMeshPro.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/UnityEngine.UI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextCoreFontEngineModule">
+      <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/UnityEngine.TextCoreFontEngineModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="UnityEngine.ScreenCaptureModule">
       <HintPath>$(ChroMapperDir)/ChroMapper_Data/Managed/UnityEngine.ScreenCaptureModule.dll</HintPath>
       <Private>False</Private>

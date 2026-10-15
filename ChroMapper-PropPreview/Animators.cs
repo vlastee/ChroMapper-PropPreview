@@ -12,8 +12,7 @@ namespace ChroMapper_PropPreview
     /// get each property; Bool, Float and point definitions follow the usual timing (a Bool is on
     /// at 1 or more); Integer is set with SetFloat in Vivify, which Unity rejects, so it does
     /// nothing in the game and is skipped here; a Trigger fires once (false resets it), so it only
-    /// fires while the song plays through it. Animators run while the song plays and stop while it
-    /// is paused, as Vivify ties their speed to the song.
+    /// fires while the song plays through it. PrefabClock keeps the animators at the song's time.
     /// </summary>
     public class Animators
     {
@@ -28,14 +27,12 @@ namespace ChroMapper_PropPreview
         private readonly List<Param> parameters = new List<Param>();
         private readonly List<(float time, Animator[] animators, string name, bool set)> triggers =
             new List<(float, Animator[], string, bool)>();
-        private readonly HashSet<Animator> all = new HashSet<Animator>();
         private float lastTime = float.NegativeInfinity;
 
         public void Clear()
         {
             parameters.Clear();
             triggers.Clear();
-            all.Clear();
         }
 
         public void Add(BaseCustomEvent ev, GameObject? instance)
@@ -43,7 +40,6 @@ namespace ChroMapper_PropPreview
             if (instance == null) return;
             var animators = instance.GetComponentsInChildren<Animator>(true);
             if (animators.Length == 0) return;
-            foreach (var a in animators) all.Add(a);
             var props = ev.Data["properties"];
             if (props == null || !props.IsArray) return;
             foreach (var prop in props.Children)
@@ -73,7 +69,6 @@ namespace ChroMapper_PropPreview
 
         public void Apply(float time, bool playing)
         {
-            foreach (var a in all) if (a != null) a.speed = playing ? 1 : 0;
             foreach (var p in parameters)
             {
                 var v = p.Timeline.Vector(time, out var s);

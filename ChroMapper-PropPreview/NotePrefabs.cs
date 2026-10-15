@@ -136,6 +136,7 @@ namespace ChroMapper_PropPreview
             {
                 if (prefab == null) continue;
                 var go = Object.Instantiate(prefab, parent, false);
+                TextRepair.Repair(go);
                 go.name = Marker;
                 Attached++;
                 SetLayer(go.transform, parent.gameObject.layer);

@@ -31,6 +31,16 @@ namespace ChroMapper_PropPreview
                     if (asset is Material m) LogShader(name, m);
                     if (asset is GameObject go)
                     {
+                        foreach (var text in go.GetComponentsInChildren<TMPro.TMP_Text>(true))
+                        {
+                            var font = text.font;
+                            Log($"  text \"{text.text}\" on {text.name}: font {(font == null ? "null" : font.name)}"
+                                + $", font material {(font == null || font.material == null ? "null" : font.material.shader?.name)}"
+                                + $", atlas {(font == null || font.atlasTexture == null ? "null" : font.atlasTexture.name)}"
+                                + $", shared material {(text.fontSharedMaterial == null ? "null" : text.fontSharedMaterial.shader?.name + " tex " + (text.fontSharedMaterial.HasProperty("_MainTex") ? text.fontSharedMaterial.GetTexture("_MainTex")?.name ?? "null" : "-"))}"
+                                + $", atlas format {(font?.atlasTexture == null ? "-" : font.atlasTexture.format.ToString() + " " + font.atlasTexture.width + "x" + font.atlasTexture.height)}"
+                                + $", glyphs {(font == null ? 0 : font.glyphTable?.Count ?? -1)}, characters {(font == null ? 0 : font.characterTable?.Count ?? -1)}");
+                        }
                         foreach (var r in go.GetComponentsInChildren<Renderer>(true))
                         foreach (var rm in r.sharedMaterials.Where(x => x != null))
                             LogShader($"{name} / {r.name}", rm);

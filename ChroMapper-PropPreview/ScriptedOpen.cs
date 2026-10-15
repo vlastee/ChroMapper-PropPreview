@@ -17,6 +17,11 @@ namespace ChroMapper_PropPreview
     /// bloomfog switched off), then quits. The song menu's edit button is pressed without saving (its
     /// handler with "no"), so the map's files stay as they are. The last-loaded map in
     /// ChroMapper's settings is put back before quitting. If a step times out, stuck.png is saved.
+    /// For comparisons with the game: PROPPREVIEW_SECONDS=1 reads the shots as song seconds;
+    /// PROPPREVIEW_MODE=Playing switches to ChroMapper's Playing mode (notes fly in like gameplay);
+    /// PROPPREVIEW_POSES="x,y,z,rx,ry,rz,fov[,near,far];..." (one per shot: world position, euler
+    /// rotation, vertical field of view, clip planes) puts the view camera there and saves only its render, at
+    /// PROPPREVIEW_SIZE (default 1280x720), without ChroMapper's UI.
     /// </summary>
     public class ScriptedOpen : MonoBehaviour
     {
@@ -46,6 +51,11 @@ namespace ChroMapper_PropPreview
             var outDir = Environment.GetEnvironmentVariable("PROPPREVIEW_OUT") ?? dir;
             var shots = (Environment.GetEnvironmentVariable("PROPPREVIEW_SHOTS") ?? "8")
                 .Split(',').Select(s => float.Parse(s, CultureInfo.InvariantCulture)).ToArray();
+            var seconds = Environment.GetEnvironmentVariable("PROPPREVIEW_SECONDS") == "1";
+            var poses = (Environment.GetEnvironmentVariable("PROPPREVIEW_POSES") ?? "")
+                .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => p.Split(',').Select(v => float.Parse(v, CultureInfo.InvariantCulture)).ToArray()).ToArray();
+            var size = (Environment.GetEnvironmentVariable("PROPPREVIEW_SIZE") ?? "1280x720").Split('x').Select(int.Parse).ToArray();
             Directory.CreateDirectory(outDir);
             LoadInitialMap.OnLevelLoaded += () => levelLoaded = true;
 
@@ -72,17 +82,31 @@ namespace ChroMapper_PropPreview
                 yield return new WaitForSeconds(5);
 
                 var atsc = FindAnyObjectByType<BeatmapRuntimeContext>().Atsc;
-                var compare = Environment.GetEnvironmentVariable("PROPPREVIEW_NOBLOOM") == "1";
-                foreach (var beat in shots)
+                if (Environment.GetEnvironmentVariable("PROPPREVIEW_MODE") == "Playing")
                 {
-                    atsc.MoveToJsonTime(beat);
+                    FindAnyObjectByType<UIMode>().SetUIMode(UIModeType.Playing, false);
+                    yield return new WaitForSeconds(1);
+                }
+                var compare = Environment.GetEnvironmentVariable("PROPPREVIEW_NOBLOOM") == "1";
+                for (var i = 0; i < shots.Length; i++)
+                {
+                    var at = shots[i];
+                    if (seconds) atsc.MoveToTimeInSeconds(at);
+                    else atsc.MoveToJsonTime(at);
                     yield return new WaitForSeconds(1.5f);
-                    yield return Shot(outDir, beat.ToString(CultureInfo.InvariantCulture), atsc.CurrentJsonTime);
+                    var name = at.ToString(CultureInfo.InvariantCulture);
+                    if (i < poses.Length)
+                    {
+                        yield return new WaitForEndOfFrame();
+                        PoseShot(outDir, name, poses[i], size[0], size[1], atsc.CurrentJsonTime, atsc.CurrentSeconds);
+                        continue;
+                    }
+                    yield return Shot(outDir, name, atsc.CurrentJsonTime);
                     var bloom = BloomfogRenderingController.Instance; // null while it is disabled
                     if (!compare || bloom == null) continue;
                     bloom.enabled = false;
                     yield return new WaitForSeconds(0.5f);
-                    yield return Shot(outDir, beat.ToString(CultureInfo.InvariantCulture) + "-nobloom", atsc.CurrentJsonTime);
+                    yield return Shot(outDir, name + "-nobloom", atsc.CurrentJsonTime);
                     bloom.enabled = true;
                 }
                 Log("done");
@@ -104,8 +128,55 @@ namespace ChroMapper_PropPreview
             File.WriteAllBytes(path, tex.EncodeToPNG());
             Destroy(tex);
             var active = FindObjectsByType<Transform>(FindObjectsSortMode.None)
-                .Count(t => t.parent == null && t.name.StartsWith("PropPreview assets/"));
+                .Count(t => t.parent == null && t.name.StartsWith("PropPreview assets/") && t.childCount > 0
+                    && t.GetChild(0).gameObject.activeSelf);
             Log($"shot {path} at beat {beat}: {active} prefab instances active");
+        }
+
+        // The view camera at a given pose, rendered alone (no UI) into a PNG; the pose is put back.
+        private static void PoseShot(string outDir, string name, float[] pose, int w, int h, float beat, float secs)
+        {
+            var cam = FindAnyObjectByType<CameraManager>().SelectedCameraController.Camera;
+            var t = cam.transform;
+            var (pos, rot, fov, near, far) = (t.position, t.rotation, cam.fieldOfView, cam.nearClipPlane, cam.farClipPlane);
+            var rt = RenderTexture.GetTemporary(w, h, 24, RenderTextureFormat.ARGB32);
+            var previousTarget = cam.targetTexture;
+            var previousActive = RenderTexture.active;
+            try
+            {
+                t.SetPositionAndRotation(new Vector3(pose[0], pose[1], pose[2]), Quaternion.Euler(pose[3], pose[4], pose[5]));
+                cam.fieldOfView = pose[6];
+                if (pose.Length >= 9)
+                {
+                    cam.nearClipPlane = pose[7];
+                    cam.farClipPlane = pose[8];
+                }
+                cam.targetTexture = rt;
+                cam.Render();
+                RenderTexture.active = rt;
+                var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                tex.Apply();
+                File.WriteAllBytes(Path.Combine(outDir, name + ".png"), tex.EncodeToPNG());
+                Destroy(tex);
+            }
+            finally
+            {
+                cam.targetTexture = previousTarget;
+                RenderTexture.active = previousActive;
+                RenderTexture.ReleaseTemporary(rt);
+                t.SetPositionAndRotation(pos, rot);
+                cam.fieldOfView = fov;
+                cam.nearClipPlane = near;
+                cam.farClipPlane = far;
+            }
+            Log($"pose shot {name} at beat {beat} ({secs} s), camera {string.Join(",", pose)}");
+            foreach (var root in FindObjectsByType<Transform>(FindObjectsSortMode.None))
+                if (root.name.StartsWith("PropPreview assets/") && root.childCount > 0 && root.GetChild(0).gameObject.activeSelf)
+                {
+                    var prefab = root.GetChild(0);
+                    Log($"  {root.name} at {prefab.position} rot {prefab.eulerAngles} scale {prefab.lossyScale}");
+                }
         }
 
         // A coroutine that throws never runs its finally, so a timeout is a flag, not an exception.
