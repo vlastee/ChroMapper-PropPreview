@@ -1,0 +1,7 @@
+{
+  "id": "ChroMapper-PropPreview",
+  "name": "PropPreview",
+  "author": "vlastee",
+  "version": "v0.1.0",
+  "description": "Vivify preview: the map's asset bundle drawn at the current song time"
+}
