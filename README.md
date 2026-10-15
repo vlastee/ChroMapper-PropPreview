@@ -50,12 +50,8 @@ Differences from the game:
 - TextMeshPro text in a bundle is repaired on load (the font's material and ChroMapper's own
   TextMeshPro shader), so it renders; line wrapping and box sizes can still differ from the game.
 - Seen in the game-vs-editor comparison (below) and not solved:
-  - geometry-shader wireframes and Poiyomi effects in 512ea fill whole triangles white where the
-    game draws thin outlines (ruled out: graphics API, face culling, stencil buffer, ambient and
-    reflection lighting, AudioLink, light probes; most likely the wireframe shaders' geometry
-    stage behaving differently in Unity 6);
-  - water reflections in 4f82e (its `SunMirrors/Ocean` water has no reflection texture of its
-    own; it relies on something the game provides);
+  - the 4f82e water reflects its notes (its realtime reflection probe works) but not the large
+    drawn curve, and its horizon is brighter than in the game;
   - shaders animated with Unity's own clock (`_Time`) and randomly seeded particles can't match
     a given frame of the game.
 - The base environment (Beat Saber's lasers, buildings, rings) is ChroMapper's approximation,
@@ -69,6 +65,19 @@ Differences from the game:
   world values), since ChroMapper's track animation rotates such a track's position by its own
   rotation.
 - `xrSettings` is not applied.
+
+## The game's rendering state
+
+Read from Beat Saber 1.40.8 (decompiled): its gameplay scenes have no Unity lights, light probes
+or reflection probes; the active scene has fog off, a flat black ambient and an effectively black
+reflection; its only quality level has no pixel lights, no shadows and no realtime reflection
+probes; the main camera renders without HDR. Vivify maps are made for that, and adjust it with
+`SetRenderingSettings` (e.g. turning realtime probes or shadows on). ChroMapper's editor scene
+lights and reflects much more, which made lit shaders (Standard, Poiyomi) brighter and flatter
+and filled stencil/wireframe scenes white. While a map with a bundle is previewed, `GameBaseline`
+sets the game's state every frame before the map's own settings, sets the shader globals the game
+provides (`_SongTime`, `_BaseColorBoost`, `_GlobalRandomValue`), and puts ChroMapper's values back
+afterwards.
 
 ## Published maps (Windows ChroMapper under Proton)
 
@@ -141,5 +150,5 @@ seconds, with the game camera's pose, field of view and clip planes (`PROPPREVIE
 not following song time (now synced, `PrefabClock`), prefabs on tracks not moving (ChroMapper's
 track animator drops objects that get deactivated; prefabs now sit in always-active holders),
 `qualitySettings` and `sun`, particle sub-emitters, TextMeshPro text, base providers in point
-definitions, prefabs on parented tracks, and the map's ambient light reaching lit shaders
-(`DynamicGI.UpdateEnvironment`, as Vivify does).
+definitions, prefabs on parented tracks, the map's ambient light reaching lit shaders
+(`DynamicGI.UpdateEnvironment`, as Vivify does), and the game's rendering state (above).

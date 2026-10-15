@@ -60,6 +60,7 @@ namespace ChroMapper_PropPreview
         private readonly List<MaterialProperty> globalProperties = new List<MaterialProperty>();
         private readonly Dictionary<string, Timeline> renderSettings = new Dictionary<string, Timeline>();
         private RenderingSnapshot? renderOriginal;
+        private readonly GameBaseline baseline = new GameBaseline();
         private readonly CameraPreview camera = new CameraPreview();
         private readonly ParentedTracks parented = new ParentedTracks();
         private readonly NotePrefabs notePrefabs = new NotePrefabs();
@@ -157,6 +158,7 @@ namespace ChroMapper_PropPreview
             renderSettings.Clear();
             renderOriginal?.Restore();
             renderOriginal = null;
+            baseline.Restore();
             camera.Clear();
             animators.Clear();
             post.Clear();
@@ -432,9 +434,11 @@ namespace ChroMapper_PropPreview
             post.Evaluate(time, lastTime, playing);
             lastTime = time;
             camera.Skybox = null;
+            if (renderOriginal != null) renderOriginal.Restore(updateAmbient: false);
+            // The game's own rendering state first (GameBaseline), then the map's settings.
+            if (bundle != null) baseline.Apply();
             if (renderOriginal != null)
             {
-                renderOriginal.Restore(updateAmbient: false);
                 foreach (var kv in renderSettings)
                 {
                     var v = kv.Value.Vector(time, out var s);
@@ -461,8 +465,8 @@ namespace ChroMapper_PropPreview
                     if (v is Vector4 vec) RenderingSnapshot.Set(kv.Key, vec);
                     else if (s != null && s.IsNumber) RenderingSnapshot.Set(kv.Key, new Vector4(s.AsFloat, 0, 0, 0));
                 }
-                RenderingSnapshot.UpdateAmbient();
             }
+            if (bundle != null) RenderingSnapshot.UpdateAmbient();
         }
 
         private object? Value(MaterialProperty p, float time)
@@ -545,11 +549,17 @@ namespace ChroMapper_PropPreview
 
         private void OnCameraPreRender(Camera cam)
         {
+            if (bundle != null && camera.IsViewCamera(cam) && context != null && context.Atsc != null)
+                baseline.OnPreRender(cam, context.Atsc.CurrentSeconds);
             camera.OnPreRender(cam);
             post.OnPreRender(cam);
         }
 
-        private void OnCameraPostRender(Camera cam) => post.OnPostRender(cam);
+        private void OnCameraPostRender(Camera cam)
+        {
+            post.OnPostRender(cam);
+            baseline.OnPostRender(cam);
+        }
 
         // ---- JSON helpers ----
 
