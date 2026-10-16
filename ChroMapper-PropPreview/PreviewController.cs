@@ -346,13 +346,35 @@ namespace ChroMapper_PropPreview
                 var oa = holder.AddComponent<ObjectAnimator>();
                 oa.Context = context;
                 oa.TracksManager = tracksManager;
-                oa.AttachToEnvironmentObject(t, inst.Tracks[0], v2); // targets the prefab root
+                AttachToEnvironmentObject(oa, t, inst.Tracks[0], v2); // targets the prefab root
                 foreach (var extra in inst.Tracks.Skip(1)) oa.AddParent(extra);
                 inst.Animator = oa;
             }
             go.SetActive(false);
             return inst;
         }
+
+        /// <summary>
+        /// ObjectAnimator.AttachToEnvironmentObject(target, track, v2[, more]): ChroMapper 0.14 builds
+        /// before 996 take three arguments, later ones a fourth (the box light, none here). Called
+        /// by reflection so the plugin runs on both; the extra arguments get their defaults or null.
+        /// </summary>
+        private static void AttachToEnvironmentObject(ObjectAnimator oa, Transform target, string track, bool v2)
+        {
+            attachToEnvironment ??= typeof(ObjectAnimator).GetMethods()
+                .Where(m => m.Name == nameof(ObjectAnimator.AttachToEnvironmentObject) && m.GetParameters().Length >= 3)
+                .OrderBy(m => m.GetParameters().Length).First();
+            var parameters = attachToEnvironment.GetParameters();
+            var args = new object?[parameters.Length];
+            args[0] = target;
+            args[1] = track;
+            args[2] = v2;
+            for (var i = 3; i < args.Length; i++)
+                args[i] = parameters[i].HasDefaultValue ? parameters[i].DefaultValue : null;
+            attachToEnvironment.Invoke(oa, args);
+        }
+
+        private static System.Reflection.MethodInfo? attachToEnvironment;
 
         private void AddProperties(BaseCustomEvent ev, List<MaterialProperty> into, Material? material)
         {
