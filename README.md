@@ -1,5 +1,12 @@
 # ChroMapper-PropPreview
 
+![A Vivify city street with cars and rain around ChroMapper's note grid](docs/drift-city.jpg)
+*TOKYOFUNK – BGZ WAVHART (Drift): the map's Vivify scene around ChroMapper's editor.*
+
+![The glass note prefabs of a published Vivify map in a space skybox](docs/43a1f-glass-notes.jpg)
+*[Extra Sensory II] Simplifi – you (BeatSaver 43a1f): its glass note prefabs and sky, in the
+Windows ChroMapper under Proton.*
+
 A ChroMapper plugin that previews Vivify content in the editor: it loads the map's asset bundle
 and shows its prefabs, materials and render settings at the current song time, as the game would.
 
@@ -11,9 +18,10 @@ preview item (checked 2026-10-15), so this is a separate plugin rather than a Pr
 
 ## Status
 
-Previews every Vivify event in ChroMapper 0.14.990 (dev), natively on Linux and as the Windows
-build under Proton. Checked with unattended runs on the Sunrise stage map and on published maps
-from other mappers (BeatSaver 4968d, 4c036, 4a2b3): skies, environment prefabs, note prefabs,
+Previews every Vivify event in ChroMapper 0.14 (dev, builds 990 to 996), natively on Linux and
+as the Windows build under Proton. Checked with unattended runs on the Sunrise stage map and
+against the game on published maps from other mappers, including the ten top-rated Vivify maps
+on BeatSaver (see the comparison at the end): skies, environment prefabs, note prefabs,
 post-processing and a 41,709-event map (rebuilt in about 0.2 s).
 
 What it previews, at the editor's current time, rebuilt after every edit:
@@ -24,7 +32,7 @@ What it previews, at the editor's current time, rebuilt after every edit:
 | `SetMaterialProperty` / `SetGlobalProperty` | Float, Color, Vector, Texture, Keyword |
 | `SetRenderingSettings` | the `renderSettings` values, `skybox`, `sun` (a prefab's directional light), and `qualitySettings` (shadows, anti-aliasing, pixel lights...) |
 | `SetCameraProperty` | `clearFlags` (the skybox shows only with `Skybox`, as in the game), `backgroundColor`, `depthTextureMode`, `culling`, on the view camera (`_Main`) or a `CreateCamera` camera |
-| `AssignObjectPrefab` | note, bomb, chain and chain-link prefabs on ChroMapper's notes, `Single`/`Additive`, `anyDirectionAsset` for dot notes; the prefab gets the note's colour and dissolve |
+| `AssignObjectPrefab` | note, bomb, chain and chain-link prefabs on ChroMapper's notes, `Single`/`Additive`, `anyDirectionAsset` for dot notes; the prefab gets the note's colour and dissolve as in the game (colour with alpha 1, `_Cutout` only while the note dissolves, see below) |
 | `SetAnimatorProperty` | Bool, Float and Trigger on prefab instances; animators run while the song plays |
 | `CreateScreenTexture` | render textures sized from the view, as shader globals |
 | `CreateCamera` | secondary cameras rendering the view into `texture` / `depthTexture`, with their own properties and culling |
@@ -34,6 +42,18 @@ It follows Vivify's rules, read from its source: the latest event that has start
 static value applies at once; a point definition plays over the event's `duration` (in beats)
 with the event's `easing`; a finished or zero-length event shows its last point; named point
 definitions are not resolved (Vivify doesn't resolve them for these events either).
+
+Note prefabs share the note's colour block in the game (Vivify adds their renderers to it), and
+two details of what the game puts in that block matter to their shaders:
+
+- `_Cutout`: Noodle Extensions skips a `SetCutout` that doesn't change the value, so a note that
+  never dissolves has no `_Cutout` in its block and its prefab uses its material's value. Maps
+  rely on it (43a1f's glass notes are solid at `_Cutout` 1, the shader's default). ChroMapper
+  writes 0 there whenever it isn't previewing a dissolve, so the prefabs get a copy of the
+  note's block that leaves a 0 out.
+- `_Color`: the game sets the note colour with alpha 1 (`_defaultColorAlpha` on every note
+  prefab), and Chroma keeps that alpha when it recolours a note. ChroMapper passes the map's
+  alpha, so a Chroma colour of `[0, 0, 0, 0]` (43a25's black notes) would make them invisible.
 
 Differences from the game:
 
@@ -53,7 +73,14 @@ Differences from the game:
   - the 4f82e water reflects its notes (its realtime reflection probe works) but not the large
     drawn curve, and its horizon is brighter than in the game;
   - shaders animated with Unity's own clock (`_Time`) and randomly seeded particles can't match
-    a given frame of the game.
+    a given frame of the game;
+  - notes on tracks that `AssignTrackParent` puts under the player's track don't follow it
+    (43a25 moves the player and its `NoteTrack` with it): ChroMapper doesn't parent notes, so
+    they stay where they would be without the parent;
+  - 43a24's head-locked HUD (`baseHeadPosition` / `baseHeadRotation`) is drawn small in the
+    middle of the view although its root is at the head, and its warp notes don't spread out
+    around the sun as in the game;
+  - 43a4b's distant hills are black, and 4968d misses a halo around its light at 96 s.
 - The base environment (Beat Saber's lasers, buildings, rings) is ChroMapper's approximation,
   not the game's.
 - Heck base providers (`"baseHeadPosition.xy"`, `"baseNote0Color"`...) in point definitions:
@@ -83,12 +110,18 @@ afterwards.
 
 Published maps carry only the game's bundle (`bundleWindows2021.vivify`, Direct3D 11 shaders),
 which the native Linux ChroMapper (Vulkan) loads but cannot draw. The Windows build of
-ChroMapper under Proton draws it (Direct3D 12 through vkd3d), and the plugin picks the bundle
-that fits the graphics API. `tools/chromapper-windows.sh`:
+ChroMapper under Proton draws it, with Direct3D 11 through DXVK (`-force-d3d11`, as the game
+renders; ChroMapper's default Direct3D 12 through vkd3d drew no tessellated grass with a geometry
+stage and could stall on it), and the plugin picks the bundle that fits the graphics API.
+`tools/chromapper-windows.sh`:
 
     tools/chromapper-windows.sh install       # Windows ChroMapper, same build as the Linux one, + plugins
     tools/chromapper-windows.sh fetch 4968d   # a BeatSaver map into the WIP levels
-    tools/chromapper-windows.sh run           # ChroMapper in a window
+    tools/chromapper-windows.sh               # ChroMapper in a window (same as "run")
+
+`fetch` also downloads a bundle the map doesn't ship: the Extra Sensory II maps leave it out and
+Vivify downloads it by the checksum in `Info.dat` from its repository (repo.totalbs.dev), which
+the game only does with `AllowDownload` on in `UserData/Vivify.json`.
 
 Your own maps can carry a `bundleLinux.vivify` (a Linux build of the same bundle) for the native
 Linux ChroMapper.
@@ -136,10 +169,17 @@ loads in 0.13 (the bundle loads, but nothing will draw under URP).
   copy of the map. While it runs, Discord RPC is off and the last-loaded map is the test map;
   both are restored before quitting.
 
+- With `PROPPREVIEW_OPEN`, `PROPPREVIEW_NOTES=1` also logs, with each screenshot, the note
+  containers on screen: their position, the prefabs on them, and each enabled renderer's shader
+  with its material values and colour-block overrides.
+
 Results go to ChroMapper's log (`~/.config/unity3d/BinaryElement/ChroMapper/ChroMapper.log`;
 under Proton `<prefix>/pfx/drive_c/users/steamuser/AppData/LocalLow/BinaryElement/ChroMapper/`),
-in lines that start with `PropPreview`. Under Proton, pass Windows paths (`Z:\...`), and stop a
-gamescope left behind after ChroMapper quits by its PID.
+in lines that start with `PropPreview`. That log loses its last lines when ChroMapper quits right
+after them, so a scripted run also writes its own lines to `<PROPPREVIEW_OUT>/scripted.log`.
+Under Proton, pass Windows paths (`Z:\...`; in zsh, `echo` turns `\t` in such a path into a tab),
+run ChroMapper with `-force-d3d11`, and stop the gamescope left behind after ChroMapper quits,
+by its PID.
 
 ## Game vs editor comparison
 
@@ -152,3 +192,11 @@ track animator drops objects that get deactivated; prefabs now sit in always-act
 `qualitySettings` and `sun`, particle sub-emitters, TextMeshPro text, base providers in point
 definitions, prefabs on parented tracks, the map's ambient light reaching lit shaders
 (`DynamicGI.UpdateEnvironment`, as Vivify does), and the game's rendering state (above).
+
+A second round (2026-10-17) took the ten top-rated Vivify maps on BeatSaver, hardest Standard
+difficulty: 43a1f, 43a25, 4968d, 43a24, 4a2b3, 43a47, 43a4b, 4f82e, 44f7c, 512ea. Six match the
+game in notes and environment (43a1f, 4968d, 4a2b3, 43a47, 44f7c, 512ea), 4f82e apart from its
+water reflection. It found and fixed: note prefabs drawing nothing (`_Cutout`) or invisible
+(colour alpha), see above; tessellated grass with a geometry stage (43a25) drawing nothing and
+stalling ChroMapper under Direct3D 12, hence `-force-d3d11`, which changed no other map. What it
+didn't fix is listed under the differences from the game.

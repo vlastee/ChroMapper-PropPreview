@@ -3,13 +3,14 @@
 #
 # Published maps ship only the game's bundle (bundleWindows2021.vivify), whose shaders are
 # Direct3D 11 only: the native Linux ChroMapper (Vulkan) loads it but draws nothing. Windows
-# ChroMapper under Proton runs Direct3D 12 through vkd3d and draws it.
+# ChroMapper under Proton draws it, run with Direct3D 11 (DXVK) like the game: under its default
+# Direct3D 12 (vkd3d) tessellated grass with a geometry stage (43a25) draws nothing and can stall it.
 #
 #   tools/chromapper-windows.sh install [BUILD]   Windows ChroMapper BUILD (default: the Linux
 #                                                 install's build, from ~/Applications/cm-version)
 #                                                 + PropPreview + PropEdit from the Linux install
 #   tools/chromapper-windows.sh fetch CODE        a BeatSaver map (e.g. 4968d) into the WIP levels
-#   tools/chromapper-windows.sh run               ChroMapper in a window
+#   tools/chromapper-windows.sh [run]             ChroMapper in a window (the default once installed)
 #
 # Settings (environment):
 #   CM_WIN_DIR     install folder              (default ~/Applications/chromapper-win)
@@ -75,6 +76,16 @@ print(m["versions"][0]["downloadURL"], re.sub(r"\s+", " ", re.sub(r"[^\w .()-]",
     curl -sSf -o "$dest.zip" "$url"
     unzip -q "$dest.zip" -d "$dest"
     rm "$dest.zip"
+    # Some maps (Extra Sensory II) ship no bundle: Vivify downloads it by checksum from its repository.
+    local crc
+    crc=$(python3 -I -c '
+import json, sys
+print(json.load(open(sys.argv[1]))["_customData"]["_assetBundle"].get("_windows2021", ""))' "$dest/Info.dat" 2>/dev/null || true)
+    if [ -n "$crc" ] && [ ! -e "$dest/bundleWindows2021.vivify" ]; then
+        url=$(curl -sSf "https://repo.totalbs.dev/api/v1/bundles/$crc" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["downloadUrl"])')
+        curl -sSf -o "$dest/bundleWindows2021.vivify" "$url"
+        echo "bundle $crc from the Vivify repository"
+    fi
     echo "$dest"
 }
 
@@ -93,12 +104,16 @@ EOF
     fi
     cd "$DIR"
     STEAM_COMPAT_DATA_PATH="$PREFIX" STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/steam" \
-        exec "$PROTON/proton" run ./ChroMapper.exe
+        exec "$PROTON/proton" run ./ChroMapper.exe -force-d3d11
 }
+
+# The comment block at the top, without its "# ".
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 1; }
 
 case "${1:-}" in
     install) shift; install "$@" ;;
     fetch) shift; fetch "$@" ;;
     run) run ;;
-    *) sed -n '2,22p' "$0"; exit 1 ;;
+    "") [ -e "$DIR/ChroMapper.exe" ] && run || usage ;;
+    *) usage ;;
 esac

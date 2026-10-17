@@ -21,7 +21,9 @@ namespace ChroMapper_PropPreview
     /// PROPPREVIEW_MODE=Playing switches to ChroMapper's Playing mode (notes fly in like gameplay);
     /// PROPPREVIEW_POSES="x,y,z,rx,ry,rz,fov[,near,far];..." (one per shot: world position, euler
     /// rotation, vertical field of view, clip planes) puts the view camera there and saves only its render, at
-    /// PROPPREVIEW_SIZE (default 1280x720), without ChroMapper's UI.
+    /// PROPPREVIEW_SIZE (default 1280x720), without ChroMapper's UI. PROPPREVIEW_NOTES=1 logs, with
+    /// each screenshot, the note containers on screen: position, and each enabled renderer's shader
+    /// with its material values and colour-block overrides.
     /// </summary>
     public class ScriptedOpen : MonoBehaviour
     {
@@ -49,6 +51,20 @@ namespace ChroMapper_PropPreview
             var diff = Environment.GetEnvironmentVariable("PROPPREVIEW_DIFF") ?? "Expert";
             var characteristic = Environment.GetEnvironmentVariable("PROPPREVIEW_CHAR") ?? "Standard";
             var outDir = Environment.GetEnvironmentVariable("PROPPREVIEW_OUT") ?? dir;
+            try
+            {
+                Directory.CreateDirectory(outDir);
+                logPath = Path.Combine(outDir, "scripted.log");
+                File.WriteAllText(logPath, "");
+            }
+            catch (Exception e)
+            {
+                // A coroutine that throws would leave ChroMapper running unattended.
+                Log($"FAIL: output folder {outDir}: {e.Message}");
+                Settings.Instance.DiscordRPCEnabled = discordWas;
+                Application.Quit();
+                yield break;
+            }
             var shots = (Environment.GetEnvironmentVariable("PROPPREVIEW_SHOTS") ?? "8")
                 .Split(',').Select(s => float.Parse(s, CultureInfo.InvariantCulture)).ToArray();
             var seconds = Environment.GetEnvironmentVariable("PROPPREVIEW_SECONDS") == "1";
@@ -56,7 +72,6 @@ namespace ChroMapper_PropPreview
                 .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(p => p.Split(',').Select(v => float.Parse(v, CultureInfo.InvariantCulture)).ToArray()).ToArray();
             var size = (Environment.GetEnvironmentVariable("PROPPREVIEW_SIZE") ?? "1280x720").Split('x').Select(int.Parse).ToArray();
-            Directory.CreateDirectory(outDir);
             LoadInitialMap.OnLevelLoaded += () => levelLoaded = true;
 
             var settings = Settings.Instance;
@@ -99,6 +114,7 @@ namespace ChroMapper_PropPreview
                     {
                         yield return new WaitForEndOfFrame();
                         PoseShot(outDir, name, poses[i], size[0], size[1], atsc.CurrentJsonTime, atsc.CurrentSeconds);
+                        if (Environment.GetEnvironmentVariable("PROPPREVIEW_NOTES") == "1") LogNotes();
                         continue;
                     }
                     yield return Shot(outDir, name, atsc.CurrentJsonTime);
@@ -131,6 +147,55 @@ namespace ChroMapper_PropPreview
                 .Count(t => t.parent == null && t.name.StartsWith("PropPreview assets/") && t.childCount > 0
                     && t.GetChild(0).gameObject.activeSelf);
             Log($"shot {path} at beat {beat}: {active} prefab instances active");
+            if (Environment.GetEnvironmentVariable("PROPPREVIEW_NOTES") == "1") LogNotes();
+        }
+
+        // Every note container on screen: where it is and what of it renders.
+        private static void LogNotes()
+        {
+            try
+            {
+                LogNoteContainers();
+            }
+            catch (Exception e)
+            {
+                Log($"FAIL: note log: {e}");
+            }
+        }
+
+        private static void LogNoteContainers()
+        {
+            var collection = BeatmapObjectContainerCollection.GetCollectionForType(Beatmap.Enums.ObjectType.Note);
+            if (collection == null) return;
+            foreach (var c in collection.LoadedContainers.Values.OfType<Beatmap.Containers.NoteContainer>())
+            {
+                Log($"  note {c.NoteData?.JsonTime} active {c.gameObject.activeInHierarchy} at {c.transform.position}"
+                    + $" scale {c.transform.lossyScale} layer {c.gameObject.layer}");
+                foreach (var t in c.GetComponentsInChildren<Transform>(true).Where(t => t.name == "PropPreview note prefab"))
+                    Log($"    prefab under {t.parent.name}: active {t.gameObject.activeInHierarchy} (self {t.gameObject.activeSelf})"
+                        + $" scale {t.lossyScale} renderers {t.GetComponentsInChildren<Renderer>(true).Length}");
+                foreach (var r in c.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (!r.enabled || !r.gameObject.activeInHierarchy) continue;
+                    var m = r.sharedMaterial;
+                    var block = new MaterialPropertyBlock();
+                    r.GetPropertyBlock(block);
+                    var props = m == null ? "" : string.Join(" ", Enumerable.Range(0, m.shader.GetPropertyCount())
+                        .Where(k => m.shader.GetPropertyType(k) != UnityEngine.Rendering.ShaderPropertyType.Texture)
+                        .Select(k =>
+                        {
+                            var p = m.shader.GetPropertyName(k);
+                            var isColor = m.shader.GetPropertyType(k) == UnityEngine.Rendering.ShaderPropertyType.Color
+                                || m.shader.GetPropertyType(k) == UnityEngine.Rendering.ShaderPropertyType.Vector;
+                            var mat = isColor ? m.GetVector(p).ToString() : m.GetFloat(p).ToString(CultureInfo.InvariantCulture);
+                            var mpb = isColor ? (block.HasVector(p) || block.HasColor(p) ? block.GetVector(p).ToString() : null)
+                                : (block.HasFloat(p) ? block.GetFloat(p).ToString(CultureInfo.InvariantCulture) : null);
+                            return mpb == null ? $"{p}={mat}" : $"{p}={mat}|mpb {mpb}";
+                        }));
+                    Log($"    {r.name} visible {r.isVisible} bounds {r.bounds.center} {r.bounds.size}"
+                        + $" shader {(m == null ? "null" : m.shader.name + " q" + m.renderQueue)} {props}");
+                }
+            }
         }
 
         // The view camera at a given pose, rendered alone (no UI) into a PNG; the pose is put back.
@@ -216,6 +281,21 @@ namespace ChroMapper_PropPreview
             Log($"reached {what}");
         }
 
-        private static void Log(string line) => Debug.Log($"PropPreview scripted: {line}");
+        // Also into <PROPPREVIEW_OUT>/scripted.log, written at once: ChroMapper's own log loses
+        // its last lines when ChroMapper quits soon after them.
+        private static void Log(string line)
+        {
+            Debug.Log($"PropPreview scripted: {line}");
+            if (logPath == null) return;
+            try
+            {
+                File.AppendAllText(logPath, line + "\n");
+            }
+            catch (IOException)
+            {
+            }
+        }
+
+        private static string? logPath;
     }
 }

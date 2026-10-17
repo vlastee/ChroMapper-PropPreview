@@ -134,6 +134,7 @@ namespace ChroMapper_PropPreview
                     Debug.LogException(e);
                 }
             }
+            notePrefabs.Sync();
             if (context == null || context.Atsc == null) return;
             Apply(context.Atsc.CurrentJsonTime);
         }
